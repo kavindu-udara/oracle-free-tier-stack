@@ -15,7 +15,7 @@ WG_IFACE="10.8.0.1"
 WG_PORT="51820"
 WG_MTU="1280"
 PUBLIC_IFACE="ens3"
-PUBLIC_IP=$(curl -s4 ifconfig.me)
+PUBLIC_IP=$(curl -s4 ifconfig.me || echo "127.0.0.1")
 UPTIME_KUMA_PORT="8081"
 VAULTWARDEN_PORT="8082"
 PIHOLE_ADMIN_PORT="80"
@@ -147,7 +147,7 @@ systemctl restart wg-quick@wg0
 
 # Generate client config
 mkdir -p ~/wg-configs
-cat >~/wg-configs/client1.conf <<EOF
+tee ~/wg-configs/client1.conf > /dev/null <<EOF
 [Interface]
 PrivateKey = ${CLIENT_PRIVKEY}
 Address = 10.8.0.2/24
@@ -171,6 +171,22 @@ echo "  QR code: ~/wg-configs/client1.qr"
 echo ""
 echo "[6/8] Installing Pi-hole..."
 
+echo "  Disabling systemd-resolved to avoid conflicts..."
+# Disable systemd-resolved entirely
+sudo systemctl disable --now systemd-resolved
+sudo systemctl mask systemd-resolved
+
+# Create static resolv.conf
+echo "nameserver 1.1.1.1" | sudo tee /etc/resolv.conf
+echo "nameserver 8.8.8.8" | sudo tee -a /etc/resolv.conf
+
+# Prevent NetworkManager or netplan from overwriting it
+sudo chattr +i /etc/resolv.conf
+
+# Verify
+curl -s4 ifconfig.me
+ping -c 3 google.com
+
 PIHOLE_PASS=$(openssl rand -base64 16)
 
 export INSTALL_SKIP_RESTART=true
@@ -190,6 +206,7 @@ echo "listen-address=127.0.0.1,${WG_IFACE}" >/etc/dnsmasq.d/wireguard.conf
 echo "bind-interfaces" >>/etc/dnsmasq.d/wireguard.conf
 
 systemctl restart pihole
+systemctl restart pihole-FTL.service
 echo "  Pi-hole installed. Admin password: ${PIHOLE_PASS}"
 echo "  Access via: http://${WG_IFACE}/admin (when connected to VPN)"
 
